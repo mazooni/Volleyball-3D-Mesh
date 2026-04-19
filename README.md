@@ -8,9 +8,7 @@ Three notebook-driven pipelines for volleyball footage:
 
 ## Live Mesh Viewer
 
-- Deploy this repo from the Vercel dashboard or use the quick import link: [Deploy `volleyball-ui` to Vercel](https://vercel.com/new/clone?repository-url=https://github.com/mazooni/Volleyball-3D-Mesh&project-name=volleyball-3d-mesh&root-directory=volleyball-ui)
-- Vercel root directory: `volleyball-ui`
-- Suggested project name: `volleyball-3d-mesh`
+Explore the interactive SAM 3D body mesh reconstruction in the live viewer: [volleyball-3d-mesh.vercel.app](https://volleyball-3d-mesh.vercel.app)
 
 ## Repository Layout
 
@@ -108,15 +106,7 @@ SAM 3D body mesh extraction and viewer export for a volleyball clip.
   - `viewer_data/faces.bin`
   - `viewer_data/chunk_*.bin`
 
-The deployable site in [`volleyball-ui/`](volleyball-ui) packages the mesh viewer for Vercel as a standalone 3D experience.
-
-## Deploying the Viewer
-
-1. Import this repo into Vercel Pro.
-2. Set the root directory to `volleyball-ui`.
-3. If Vercel asks for framework settings, keep it as a static site and deploy.
-
-`volleyball-ui/index.html` is the public entrypoint, and the mesh payload is served from `volleyball-ui/3dmesh/viewer_data/*`.
+The standalone viewer lives in [`volleyball-ui/`](volleyball-ui), with `index.html` as the entrypoint and the mesh payload served from `3dmesh/viewer_data/*`.
 
 ## Notes
 
