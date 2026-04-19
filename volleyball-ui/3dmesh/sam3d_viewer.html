@@ -17,6 +17,7 @@
   #timeline { flex: 1 1 240px; min-width: 180px; -webkit-appearance: none; appearance: none; height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; outline: none; cursor: pointer; }
   #timeline::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #f59e0b; cursor: grab; }
   #frame-info { font-size: 12px; color: #8b9cb3; min-width: 130px; text-align: right; font-variant-numeric: tabular-nums; }
+  #buffer-status { font-size: 12px; color: #8b9cb3; min-width: 180px; font-variant-numeric: tabular-nums; }
   #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 18px; color: #f59e0b; z-index: 100; }
   #speed-label { font-size: 11px; color: #8b9cb3; }
   #return-indicator { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.55); color: #fff; padding: 5px 14px; border-radius: 16px; font-size: 11px; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
@@ -72,6 +73,7 @@
   <button id="btn-next">&rarr;</button>
   <input type="range" id="timeline" min="0" max="0" value="0">
   <span id="frame-info">0 / 0</span>
+  <span id="buffer-status">Buffering playback...</span>
   <button id="btn-speed">1x</button>
   <span id="speed-label">speed</span>
   <button id="btn-wireframe">Wire</button>
@@ -87,13 +89,45 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const D = 'viewer_data';
-const M = await fetch(D+'/manifest.json').then(r=>r.json());
-const faceBuf = await fetch(D+'/faces.bin').then(r=>r.arrayBuffer());
+const loadingEl = document.getElementById('loading');
+if (location.protocol === 'file:') {
+  loadingEl.innerHTML = 'Open this viewer through a local web server.';
+  throw new Error('Local file mode is not supported for the mesh viewer.');
+}
+
+const DATA_ROOT = new URL(
+  location.pathname.includes('/3dmesh/') ? './viewer_data/' : './3dmesh/viewer_data/',
+  location.href
+);
+const dataUrl = (name) => new URL(name, DATA_ROOT);
+let M, faceBuf;
+try {
+  const manifestResp = await fetch(dataUrl('manifest.json'));
+  if (!manifestResp.ok) throw new Error(`manifest.json ${manifestResp.status}`);
+  M = await manifestResp.json();
+
+  const facesResp = await fetch(dataUrl('faces.bin'));
+  if (!facesResp.ok) throw new Error(`faces.bin ${facesResp.status}`);
+  faceBuf = await facesResp.arrayBuffer();
+} catch (err) {
+  const pathHint = DATA_ROOT.pathname.endsWith('/') ? DATA_ROOT.pathname : `${DATA_ROOT.pathname}/`;
+  loadingEl.innerHTML = `Failed to load mesh data from <code>${pathHint}</code>.`;
+  throw err;
+}
 const FACES = new Uint32Array(faceBuf);
 const {totalFrames,fps:VIDEO_FPS,chunkSize:CS,numChunks:NC,numVerts:NV,numKps:NK} = M;
 
-document.getElementById('loading').textContent='Loading first chunk...';
+// Default start view. Update `position` and `target` to lock in an exact
+// opening camera angle.
+const START_VIEW = {
+  position: [-0.408, -1.209, 0.589],
+  target: [-0.101, -0.798, -6.854],
+  relativePositionOffset: [0.0, 0.0, 0.0],
+  relativeTargetOffset: [0.0, 0.0, 0.0],
+};
+const STARTUP_BUFFER_CHUNKS = Math.min(NC, 50);
+
+loadingEl.textContent='Loading first chunk...';
 
 const cache=new Map(), loading=new Map();
 const BYTES_PER_PERSON = NV*3*4 + 3*4 + NK*3*4;
@@ -112,7 +146,10 @@ function f16to32(u16arr){
 async function loadChunk(ci){
   if(cache.has(ci)) return cache.get(ci);
   if(loading.has(ci)) return loading.get(ci);
-  const p=fetch(D+'/chunk_'+ci+'.bin').then(r=>r.arrayBuffer()).then(ab=>{
+  const p=fetch(dataUrl('chunk_'+ci+'.bin')).then(r=>{
+    if(!r.ok) throw new Error(`chunk_${ci}.bin ${r.status}`);
+    return r.arrayBuffer();
+  }).then(ab=>{
     const bytes=new Uint8Array(ab);
     const frames=[]; let off=0;
     while(off<ab.byteLength){
@@ -135,10 +172,10 @@ async function loadChunk(ci){
   loading.set(ci,p); return p;
 }
 function getFrame(fi){ const c=cache.get(Math.floor(fi/CS)); return c?c[fi%CS]:null; }
-function prefetch(fi){ const ci=Math.floor(fi/CS); for(let d=0;d<=2;d++) if(ci+d<NC) loadChunk(ci+d); }
+function prefetch(){ startBackgroundPreload(); }
 
 await loadChunk(0);
-document.getElementById('loading').remove();
+loadingEl.remove();
 
 const BONES=[[13,11],[11,9],[14,12],[12,10],[9,10],[5,9],[6,10],[5,6],[5,7],[6,8],[7,62],[8,41],[1,2],[0,1],[0,2],[1,3],[2,4],[3,5],[4,6],[13,15],[13,16],[13,17],[14,18],[14,19],[14,20]];
 
@@ -170,6 +207,35 @@ let pms=[];
 const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
 
 function tkp(k,i,t){return new THREE.Vector3(k[i*3]+t[0],-(k[i*3+1]+t[1]),-(k[i*3+2]+t[2]));}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+function roundN(v,d=3){return Number(v.toFixed(d));}
+function vecFrom(arr,fallback){return Array.isArray(arr)&&arr.length===3?new THREE.Vector3(arr[0],arr[1],arr[2]):fallback.clone();}
+function currentDistance(){return camera.position.distanceTo(ctrl.target);}
+function currentElevationDeg(){
+  const dir=new THREE.Vector3().subVectors(camera.position,ctrl.target);
+  const dist=Math.max(dir.length(),1e-6);
+  return Math.asin(clamp(dir.y/dist,-1,1))*180/Math.PI;
+}
+function syncViewControls(){
+  const dist=currentDistance();
+  const elev=currentElevationDeg();
+  elevAngle=elev;
+  angleSlider.value=String(Math.round(clamp(elev,-80,80)));
+  angleVal.textContent=`${Math.round(elev)}°`;
+  zoomSlider.value=String(clamp(dist,1,20));
+  zoomVal.textContent=dist.toFixed(1);
+}
+function buildStartView(baseTarget){
+  const target=vecFrom(
+    START_VIEW.target,
+    baseTarget.clone().add(new THREE.Vector3(...START_VIEW.relativeTargetOffset))
+  );
+  const position=vecFrom(
+    START_VIEW.position,
+    baseTarget.clone().add(new THREE.Vector3(...START_VIEW.relativePositionOffset))
+  );
+  return {target,position};
+}
 
 function mkBones(k,t){
   const g=new THREE.Group();
@@ -210,8 +276,15 @@ function setFrame(fi){
     }
   }
   if(ppl.length>0&&!camInit){
-    const p=ppl[0];ctrl.target.set(p.t[0],-p.t[1],-p.t[2]);camera.position.set(p.t[0],-p.t[1],-p.t[2]+4);
-    ctrl.update();saveDef();camInit=true;
+    const p=ppl[0];
+    const baseTarget=new THREE.Vector3(p.t[0],-p.t[1],-p.t[2]);
+    const startView=buildStartView(baseTarget);
+    ctrl.target.copy(startView.target);
+    camera.position.copy(startView.position);
+    ctrl.update();
+    syncViewControls();
+    saveDef();
+    camInit=true;
   }
 }
 
@@ -231,8 +304,10 @@ function selPerson(pid){
 ren.domElement.addEventListener('click',e=>{const r2=ren.domElement.getBoundingClientRect();mouse.x=((e.clientX-r2.left)/r2.width)*2-1;mouse.y=-((e.clientY-r2.top)/r2.height)*2+1;ray.setFromCamera(mouse,camera);const h=ray.intersectObjects(pms.map(p=>p.m));if(h.length>0)selPerson(h[0].object.userData.pid);});
 
 let curF=0,playing=false,spd=1,acc=0;
+let playRequestedWhileBuffering=false,waitingForChunk=false,preloadPromise=null;
 const spds=[0.25,0.5,1,2,4];let si=2;
 const tl=document.getElementById('timeline'),fi2=document.getElementById('frame-info');
+const bufferStatusEl=document.getElementById('buffer-status');
 const bp=document.getElementById('btn-play'),bpr=document.getElementById('btn-prev'),bn=document.getElementById('btn-next');
 const bs=document.getElementById('btn-speed'),bw=document.getElementById('btn-wireframe'),bb=document.getElementById('btn-bones');
 tl.max=totalFrames-1;
@@ -241,12 +316,65 @@ let defP=new THREE.Vector3(0,0,5),defT=new THREE.Vector3(0,0,0);
 function saveDef(){defP.copy(camera.position);defT.copy(ctrl.target);}
 document.getElementById('btn-reset').addEventListener('click',()=>{
   camera.position.copy(defP);ctrl.target.copy(defT);ctrl.update();
-  angleSlider.value=0;angleVal.textContent='0°';elevAngle=0;
-  zoomSlider.value=4;zoomVal.textContent='4.0';
+  syncViewControls();
 });
 
-function upUI(){tl.value=curF;const s=(curF/VIDEO_FPS).toFixed(1),ts=(totalFrames/VIDEO_FPS).toFixed(1);fi2.textContent=`${curF}/${totalFrames-1} (${s}s/${ts}s)`;bp.textContent=playing?'Pause':'Play';bp.classList.toggle('active',playing);}
-async function goF(f){curF=Math.max(0,Math.min(totalFrames-1,f));await loadChunk(Math.floor(curF/CS));setFrame(curF);upUI();}
+function contiguousLoadedChunks(){
+  let ci=0;
+  while(ci<NC&&cache.has(ci)) ci++;
+  return ci;
+}
+function startupBufferReady(){ return contiguousLoadedChunks()>=STARTUP_BUFFER_CHUNKS; }
+function updateBufferUI(){
+  const contiguous=contiguousLoadedChunks();
+  if(playRequestedWhileBuffering&&startupBufferReady()){
+    playRequestedWhileBuffering=false;
+    playing=true;
+    waitingForChunk=false;
+    acc=0;
+  }
+  if(waitingForChunk&&playing){
+    const nextChunk=Math.min(NC,Math.floor((curF+1)/CS)+1);
+    bufferStatusEl.textContent=`Buffering chunk ${nextChunk}/${NC}...`;
+  }else if(contiguous<STARTUP_BUFFER_CHUNKS){
+    bufferStatusEl.textContent=`Buffering play ${contiguous}/${STARTUP_BUFFER_CHUNKS} chunks`;
+  }else if(contiguous<NC){
+    bufferStatusEl.textContent=`Preloading ${contiguous}/${NC} chunks`;
+  }else{
+    bufferStatusEl.textContent='Mesh fully loaded';
+  }
+  upUI();
+}
+async function startBackgroundPreload(){
+  if(preloadPromise) return preloadPromise;
+  preloadPromise=(async()=>{
+    for(let ci=0;ci<NC;ci++){
+      if(cache.has(ci)){ updateBufferUI(); continue; }
+      await loadChunk(ci);
+      updateBufferUI();
+      await new Promise(r=>setTimeout(r,0));
+    }
+    updateBufferUI();
+  })().catch(err=>{
+    console.error('Background preload failed', err);
+    bufferStatusEl.textContent='Preload interrupted';
+  });
+  return preloadPromise;
+}
+function upUI(){
+  tl.value=curF;
+  const s=(curF/VIDEO_FPS).toFixed(1),ts=(totalFrames/VIDEO_FPS).toFixed(1);
+  fi2.textContent=`${curF}/${totalFrames-1} (${s}s/${ts}s)`;
+  bp.textContent=playRequestedWhileBuffering&&!startupBufferReady()?'Buffering...':(playing?'Pause':'Play');
+  bp.classList.toggle('active',playing||playRequestedWhileBuffering);
+}
+async function goF(f){
+  curF=Math.max(0,Math.min(totalFrames-1,f));
+  await loadChunk(Math.floor(curF/CS));
+  waitingForChunk=false;
+  setFrame(curF);
+  updateBufferUI();
+}
 
 // ── Elevation angle slider ──
 const angleSlider=document.getElementById('angle-slider');
@@ -279,19 +407,43 @@ zoomSlider.addEventListener('input',()=>{
   ctrl.update();
 });
 
-bp.addEventListener('click',()=>{playing=!playing;acc=0;upUI();});
-bpr.addEventListener('click',()=>{playing=false;goF(curF-1);});
-bn.addEventListener('click',()=>{playing=false;goF(curF+1);});
-tl.addEventListener('input',()=>{curF=Math.max(0,Math.min(totalFrames-1,parseInt(tl.value)));acc=0;loadChunk(Math.floor(curF/CS)).then(()=>{setFrame(curF);upUI();});startRet();});
+bp.addEventListener('click',()=>{
+  if(playing){
+    playing=false;
+  }else if(playRequestedWhileBuffering){
+    playRequestedWhileBuffering=false;
+  }else if(!startupBufferReady()){
+    playRequestedWhileBuffering=true;
+    startBackgroundPreload();
+  }else{
+    playing=true;
+  }
+  waitingForChunk=false;
+  acc=0;
+  updateBufferUI();
+});
+bpr.addEventListener('click',()=>{playing=false;playRequestedWhileBuffering=false;goF(curF-1);});
+bn.addEventListener('click',()=>{playing=false;playRequestedWhileBuffering=false;goF(curF+1);});
+tl.addEventListener('input',()=>{
+  curF=Math.max(0,Math.min(totalFrames-1,parseInt(tl.value)));
+  playing=false;
+  playRequestedWhileBuffering=false;
+  waitingForChunk=false;
+  acc=0;
+  loadChunk(Math.floor(curF/CS)).then(()=>{setFrame(curF);updateBufferUI();});
+});
 bs.addEventListener('click',()=>{si=(si+1)%spds.length;spd=spds[si];bs.textContent=spd+'x';});
 bw.addEventListener('click',()=>{wire=!wire;bw.textContent=wire?'Wire':'Solid';pms.forEach((o,i)=>{const sel=selP===-1||selP===i;o.m.material=wire?(sel?matW:matDW):(sel?matS:matDS);});});
 bb.addEventListener('click',()=>{bones=!bones;bb.classList.toggle('active',bones);pms.forEach((o,i)=>{const sel=selP===-1||selP===i;o.b.visible=bones&&sel;});});
 bb.classList.add('active');
 
 document.addEventListener('keydown',e=>{
-  if(e.code==='Space'){e.preventDefault();playing=!playing;acc=0;upUI();}
-  if(e.code==='ArrowLeft'){playing=false;goF(curF-1);}
-  if(e.code==='ArrowRight'){playing=false;goF(curF+1);}
+  if(e.code==='Space'){
+    e.preventDefault();
+    bp.click();
+  }
+  if(e.code==='ArrowLeft'){playing=false;playRequestedWhileBuffering=false;goF(curF-1);}
+  if(e.code==='ArrowRight'){playing=false;playRequestedWhileBuffering=false;goF(curF+1);}
   if(e.code==='KeyW')bw.click();
   if(e.code==='KeyB')bb.click();
   if(e.code==='Escape')selPerson(-1);
@@ -300,10 +452,29 @@ document.addEventListener('keydown',e=>{
 let lt=0;const fd=1000/VIDEO_FPS;
 function anim(t){
   requestAnimationFrame(anim);const dt=t-lt;lt=t;
-  if(playing){acc+=dt*spd;while(acc>=fd){acc-=fd;curF++;if(curF>=totalFrames)curF=0;}const ci=Math.floor(curF/CS);if(cache.has(ci)){setFrame(curF);upUI();}else loadChunk(ci);}
+  if(playing){
+    acc+=dt*spd;
+    while(acc>=fd){
+      const nextF=curF+1>=totalFrames?0:curF+1;
+      const nextCi=Math.floor(nextF/CS);
+      if(!cache.has(nextCi)){
+        waitingForChunk=true;
+        acc=0;
+        loadChunk(nextCi).then(()=>updateBufferUI());
+        break;
+      }
+      waitingForChunk=false;
+      acc-=fd;
+      curF=nextF;
+    }
+    const ci=Math.floor(curF/CS);
+    if(cache.has(ci)){setFrame(curF);upUI();}
+  }
   ctrl.update();ren.render(scene,camera);
 }
-goF(0);requestAnimationFrame(anim);
+goF(0);
+startBackgroundPreload();
+requestAnimationFrame(anim);
 window.addEventListener('resize',()=>{camera.aspect=container.clientWidth/container.clientHeight;camera.updateProjectionMatrix();ren.setSize(container.clientWidth,container.clientHeight);});
 </script>
 </body></html>
