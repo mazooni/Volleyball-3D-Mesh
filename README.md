@@ -8,7 +8,9 @@ Three notebook-driven pipelines for volleyball footage:
 
 ## Live Mesh Viewer
 
-Explore the interactive SAM 3D body mesh reconstruction in the live viewer: [volleyball-3d-mesh.vercel.app](https://volleyball-3d-mesh.vercel.app)
+Explore the interactive SAM 3D body mesh reconstruction in the live viewer: [volleyball-3-d-mesh.vercel.app](https://volleyball-3-d-mesh.vercel.app)
+
+Trackpad tip: it is currently easiest to navigate with two fingers to move to different positions in the scene, and a one-finger click-and-drag to turn the viewer left or right.
 
 ## Repository Layout
 
