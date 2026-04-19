@@ -1,0 +1,12 @@
+.DS_Store
+.vercel/
+
+originalNotProcessed.mp4
+Processed.mp4
+YoloPersonSection.mp4
+
+volleyball-ui/node_modules/
+volleyball-ui/dist/
+volleyball-ui/*.tsbuildinfo
+
+assets/readme/tmp/

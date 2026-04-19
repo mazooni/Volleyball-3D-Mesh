@@ -1,0 +1,310 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base href="./3dmesh/">
+<title>Volleyball 3D Mesh Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0e18; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+  #viewer { flex: 1; position: relative; }
+  canvas { display: block; }
+  #controls { background: rgba(18,24,38,0.95); padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-top: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; flex-wrap: wrap; }
+  #controls button { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+  #controls button:hover { background: rgba(255,255,255,0.12); }
+  #controls button.active { background: rgba(245,158,11,0.3); color: #fbbf24; border-color: rgba(245,158,11,0.5); }
+  #timeline { flex: 1 1 240px; min-width: 180px; -webkit-appearance: none; appearance: none; height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; outline: none; cursor: pointer; }
+  #timeline::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #f59e0b; cursor: grab; }
+  #frame-info { font-size: 12px; color: #8b9cb3; min-width: 130px; text-align: right; font-variant-numeric: tabular-nums; }
+  #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 18px; color: #f59e0b; z-index: 100; }
+  #speed-label { font-size: 11px; color: #8b9cb3; }
+  #return-indicator { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.55); color: #fff; padding: 5px 14px; border-radius: 16px; font-size: 11px; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+  #slider-panels { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 8px; z-index: 15; }
+  .slider-col { background: rgba(18,24,38,0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 6px; box-shadow: 0 2px 12px rgba(0,0,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 4px; backdrop-filter: blur(8px); }
+  .slider-col label { font-size: 10px; color: #8b9cb3; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .vslider { -webkit-appearance: none; appearance: none; width: 6px; height: 180px; background: rgba(255,255,255,0.12); border-radius: 3px; outline: none; cursor: pointer; writing-mode: vertical-lr; direction: rtl; }
+  .vslider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #f59e0b; cursor: grab; }
+  .slider-val { font-size: 11px; color: #8b9cb3; font-variant-numeric: tabular-nums; }
+  #return-indicator.visible { opacity: 1; }
+  #people-panel { position: absolute; top: 10px; right: 10px; background: rgba(18,24,38,0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.3); z-index: 15; min-width: 140px; backdrop-filter: blur(8px); }
+  #people-panel h3 { font-size: 12px; color: #8b9cb3; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .person-btn { display: block; width: 100%; text-align: left; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 4px; transition: background 0.15s; }
+  .person-btn:hover { background: rgba(255,255,255,0.1); }
+  .person-btn.selected { background: rgba(245,158,11,0.3); color: #fbbf24; border-color: rgba(245,158,11,0.5); }
+  .person-btn.all-btn { font-weight: 600; }
+  @media (max-width: 900px) {
+    #slider-panels { top: 12px; left: 12px; transform: none; }
+    .vslider { height: 130px; }
+    #controls { gap: 8px; padding: 10px 12px; }
+    #frame-info { min-width: unset; text-align: left; }
+  }
+  @media (max-width: 640px) {
+    #people-panel { top: auto; right: 12px; bottom: 88px; max-width: 46vw; }
+    #controls button { padding: 6px 10px; font-size: 12px; }
+    #timeline { flex-basis: 100%; order: 10; }
+    #frame-info { order: 11; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div id="viewer">
+  <div id="loading">Loading 3D mesh...</div>
+  <div id="slider-panels">
+    <div class="slider-col">
+      <label>Top</label>
+      <input type="range" id="angle-slider" class="vslider" min="-80" max="80" value="0" step="1">
+      <label>Low</label>
+      <span class="slider-val" id="angle-val">0°</span>
+    </div>
+    <div class="slider-col">
+      <label>Far</label>
+      <input type="range" id="zoom-slider" class="vslider" min="1" max="20" value="4" step="0.1">
+      <label>Near</label>
+      <span class="slider-val" id="zoom-val">4.0</span>
+    </div>
+  </div>
+  <div id="people-panel"><h3>People</h3><button class="person-btn all-btn selected" data-pid="-1">All</button></div>
+</div>
+<div id="controls">
+  <button id="btn-play">Play</button>
+  <button id="btn-prev">&larr;</button>
+  <button id="btn-next">&rarr;</button>
+  <input type="range" id="timeline" min="0" max="0" value="0">
+  <span id="frame-info">0 / 0</span>
+  <button id="btn-speed">1x</button>
+  <span id="speed-label">speed</span>
+  <button id="btn-wireframe">Wire</button>
+  <button id="btn-bones">Bones</button>
+  <button id="btn-reset">Reset View</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const D = 'viewer_data';
+const M = await fetch(D+'/manifest.json').then(r=>r.json());
+const faceBuf = await fetch(D+'/faces.bin').then(r=>r.arrayBuffer());
+const FACES = new Uint32Array(faceBuf);
+const {totalFrames,fps:VIDEO_FPS,chunkSize:CS,numChunks:NC,numVerts:NV,numKps:NK} = M;
+
+document.getElementById('loading').textContent='Loading first chunk...';
+
+const cache=new Map(), loading=new Map();
+const BYTES_PER_PERSON = NV*3*4 + 3*4 + NK*3*4;
+
+function f16to32(u16arr){
+  const f=new Float32Array(u16arr.length);
+  for(let i=0;i<u16arr.length;i++){
+    const h=u16arr[i],s=(h>>15)&1,e=(h>>10)&0x1f,m=h&0x3ff;
+    if(e===0){f[i]=s?-0:0;if(m)f[i]=(s?-1:1)*Math.pow(2,-14)*(m/1024);}
+    else if(e===31){f[i]=m?NaN:(s?-Infinity:Infinity);}
+    else{f[i]=(s?-1:1)*Math.pow(2,e-15)*(1+m/1024);}
+  }
+  return f;
+}
+
+async function loadChunk(ci){
+  if(cache.has(ci)) return cache.get(ci);
+  if(loading.has(ci)) return loading.get(ci);
+  const p=fetch(D+'/chunk_'+ci+'.bin').then(r=>r.arrayBuffer()).then(ab=>{
+    const bytes=new Uint8Array(ab);
+    const frames=[]; let off=0;
+    while(off<ab.byteLength){
+      const np=bytes[off]; off++;
+      const people=[];
+      for(let i=0;i<np;i++){
+        const vBytes=ab.slice(off,off+NV*3*2); off+=NV*3*2;
+        const v=f16to32(new Uint16Array(vBytes));
+        const tBytes=ab.slice(off,off+12); off+=12;
+        const t=new Float32Array(tBytes);
+        const kBytes=ab.slice(off,off+NK*3*4); off+=NK*3*4;
+        const k=new Float32Array(kBytes);
+        people.push({v,t,k});
+      }
+      frames.push(people);
+    }
+    cache.set(ci,frames); loading.delete(ci);
+    return frames;
+  });
+  loading.set(ci,p); return p;
+}
+function getFrame(fi){ const c=cache.get(Math.floor(fi/CS)); return c?c[fi%CS]:null; }
+function prefetch(fi){ const ci=Math.floor(fi/CS); for(let d=0;d<=2;d++) if(ci+d<NC) loadChunk(ci+d); }
+
+await loadChunk(0);
+document.getElementById('loading').remove();
+
+const BONES=[[13,11],[11,9],[14,12],[12,10],[9,10],[5,9],[6,10],[5,6],[5,7],[6,8],[7,62],[8,41],[1,2],[0,1],[0,2],[1,3],[2,4],[3,5],[4,6],[13,15],[13,16],[13,17],[14,18],[14,19],[14,20]];
+
+const container=document.getElementById('viewer');
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0a0e18);
+const camera=new THREE.PerspectiveCamera(50,container.clientWidth/container.clientHeight,0.1,1000);
+camera.position.set(0,0,5);
+const ren=new THREE.WebGLRenderer({antialias:true});
+ren.setSize(container.clientWidth,container.clientHeight);
+ren.setPixelRatio(Math.min(devicePixelRatio,2));
+ren.outputColorSpace=THREE.SRGBColorSpace;
+container.appendChild(ren.domElement);
+const ctrl=new OrbitControls(camera,ren.domElement); ctrl.enableDamping=true; ctrl.dampingFactor=0.08;
+
+scene.add(new THREE.AmbientLight(0xffffff,0.3));
+for(const phi of[0,2*Math.PI/3,4*Math.PI/3]){const th=Math.PI/6;const l=new THREE.DirectionalLight(0xffffff,1.0);l.position.set(Math.sin(th)*Math.cos(phi)*10,Math.sin(th)*Math.sin(phi)*10,Math.cos(th)*10);scene.add(l);}
+
+const idxArr=new Uint32Array(FACES);
+const MC=new THREE.Color(0.651,0.741,0.859), DC=new THREE.Color(0.85,0.87,0.90);
+const ms=c=>new THREE.MeshStandardMaterial({color:c,roughness:1,metalness:0,side:THREE.DoubleSide});
+const mw=c=>new THREE.MeshStandardMaterial({color:c,roughness:1,metalness:0,wireframe:true,side:THREE.DoubleSide});
+const matS=ms(MC),matW=mw(MC),matDS=ms(DC),matDW=mw(DC);
+const matB=new THREE.MeshStandardMaterial({color:new THREE.Color(0.9,0.25,0.3),roughness:0.6,metalness:0});
+const matJ=new THREE.MeshStandardMaterial({color:new THREE.Color(0.95,0.35,0.2),roughness:0.4,metalness:0});
+const jGeo=new THREE.SphereGeometry(0.008,8,6), bGeo=new THREE.CylinderGeometry(0.004,0.004,1,6);
+
+let wire=true, bones=true, selP=-1;
+let pms=[];
+const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
+
+function tkp(k,i,t){return new THREE.Vector3(k[i*3]+t[0],-(k[i*3+1]+t[1]),-(k[i*3+2]+t[2]));}
+
+function mkBones(k,t){
+  const g=new THREE.Group();
+  for(let j=0;j<Math.min(NK,21);j++){const s=new THREE.Mesh(jGeo,matJ);s.position.copy(tkp(k,j,t));g.add(s);}
+  for(const[a,b]of BONES){
+    if(a>=NK||b>=NK)continue;
+    const pa=tkp(k,a,t),pb=tkp(k,b,t),dir=new THREE.Vector3().subVectors(pb,pa),len=dir.length();
+    if(len<0.001)continue;
+    const c=new THREE.Mesh(bGeo,matB);c.scale.set(1,len,1);
+    c.position.copy(pa).add(pb).multiplyScalar(0.5);
+    c.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());
+    g.add(c);
+  }
+  g.visible=bones; return g;
+}
+
+let camInit=false;
+function setFrame(fi){
+  const ppl=getFrame(fi); if(!ppl)return; prefetch(fi);
+  while(pms.length>ppl.length){const o=pms.pop();scene.remove(o.m);o.m.geometry.dispose();scene.remove(o.b);o.b.traverse(c=>{if(c.geometry)c.geometry.dispose();});}
+  updatePanel(ppl.length);
+  for(let i=0;i<ppl.length;i++){
+    const p=ppl[i],V=NV;
+    const pos=new Float32Array(V*3);
+    for(let vi=0;vi<V;vi++){pos[vi*3]=p.v[vi*3]+p.t[0];pos[vi*3+1]=-(p.v[vi*3+1]+p.t[1]);pos[vi*3+2]=-(p.v[vi*3+2]+p.t[2]);}
+    const sel=selP===-1||selP===i;
+    const mat=wire?(sel?matW:matDW):(sel?matS:matDS);
+    if(i<pms.length){
+      const g=pms[i].m.geometry;g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.computeVertexNormals();g.computeBoundingSphere();
+      pms[i].m.material=mat;pms[i].m.userData.pid=i;
+      scene.remove(pms[i].b);pms[i].b.traverse(c=>{if(c.geometry)c.geometry.dispose();});
+      const bg=mkBones(p.k,p.t);bg.visible=bones&&sel;scene.add(bg);pms[i].b=bg;
+    }else{
+      const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setIndex(new THREE.BufferAttribute(idxArr,1));g.computeVertexNormals();
+      const m=new THREE.Mesh(g,mat);m.userData.pid=i;scene.add(m);
+      const bg=mkBones(p.k,p.t);bg.visible=bones&&sel;scene.add(bg);
+      pms.push({m,b:bg});
+    }
+  }
+  if(ppl.length>0&&!camInit){
+    const p=ppl[0];ctrl.target.set(p.t[0],-p.t[1],-p.t[2]);camera.position.set(p.t[0],-p.t[1],-p.t[2]+4);
+    ctrl.update();saveDef();camInit=true;
+  }
+}
+
+const panel=document.getElementById('people-panel');
+let lastPC=0;
+function updatePanel(n){
+  if(n===lastPC)return;lastPC=n;
+  panel.innerHTML='<h3>People</h3>';
+  const a=document.createElement('button');a.className='person-btn all-btn'+(selP===-1?' selected':'');a.textContent='All';a.dataset.pid=-1;a.onclick=()=>selPerson(-1);panel.appendChild(a);
+  for(let i=0;i<n;i++){const b=document.createElement('button');b.className='person-btn'+(selP===i?' selected':'');b.textContent='Person '+(i+1);b.dataset.pid=i;b.onclick=()=>selPerson(i);panel.appendChild(b);}
+}
+function selPerson(pid){
+  selP=pid;panel.querySelectorAll('.person-btn').forEach(b=>b.classList.toggle('selected',parseInt(b.dataset.pid)===pid));
+  if(pid>=0&&pid<pms.length){const bb=new THREE.Box3().setFromObject(pms[pid].m);const c=bb.getCenter(new THREE.Vector3());const s=bb.getSize(new THREE.Vector3()).length();ctrl.target.copy(c);camera.position.set(c.x,c.y,c.z+s*1.2);ctrl.update();}
+  for(let i=0;i<pms.length;i++){const sel=selP===-1||selP===i;pms[i].m.material=wire?(sel?matW:matDW):(sel?matS:matDS);pms[i].b.visible=bones&&sel;}
+}
+ren.domElement.addEventListener('click',e=>{const r2=ren.domElement.getBoundingClientRect();mouse.x=((e.clientX-r2.left)/r2.width)*2-1;mouse.y=-((e.clientY-r2.top)/r2.height)*2+1;ray.setFromCamera(mouse,camera);const h=ray.intersectObjects(pms.map(p=>p.m));if(h.length>0)selPerson(h[0].object.userData.pid);});
+
+let curF=0,playing=false,spd=1,acc=0;
+const spds=[0.25,0.5,1,2,4];let si=2;
+const tl=document.getElementById('timeline'),fi2=document.getElementById('frame-info');
+const bp=document.getElementById('btn-play'),bpr=document.getElementById('btn-prev'),bn=document.getElementById('btn-next');
+const bs=document.getElementById('btn-speed'),bw=document.getElementById('btn-wireframe'),bb=document.getElementById('btn-bones');
+tl.max=totalFrames-1;
+
+let defP=new THREE.Vector3(0,0,5),defT=new THREE.Vector3(0,0,0);
+function saveDef(){defP.copy(camera.position);defT.copy(ctrl.target);}
+document.getElementById('btn-reset').addEventListener('click',()=>{
+  camera.position.copy(defP);ctrl.target.copy(defT);ctrl.update();
+  angleSlider.value=0;angleVal.textContent='0°';elevAngle=0;
+  zoomSlider.value=4;zoomVal.textContent='4.0';
+});
+
+function upUI(){tl.value=curF;const s=(curF/VIDEO_FPS).toFixed(1),ts=(totalFrames/VIDEO_FPS).toFixed(1);fi2.textContent=`${curF}/${totalFrames-1} (${s}s/${ts}s)`;bp.textContent=playing?'Pause':'Play';bp.classList.toggle('active',playing);}
+async function goF(f){curF=Math.max(0,Math.min(totalFrames-1,f));await loadChunk(Math.floor(curF/CS));setFrame(curF);upUI();}
+
+// ── Elevation angle slider ──
+const angleSlider=document.getElementById('angle-slider');
+const angleVal=document.getElementById('angle-val');
+let elevAngle=0;
+angleSlider.addEventListener('input',()=>{
+  elevAngle=parseFloat(angleSlider.value);
+  angleVal.textContent=elevAngle+'°';
+  const dist=parseFloat(zoomSlider.value);
+  const dir=new THREE.Vector3().subVectors(camera.position,ctrl.target).normalize();
+  const horiz=Math.sqrt(dir.x*dir.x+dir.z*dir.z)||0.001;
+  const azimuth=Math.atan2(dir.x,dir.z);
+  const rad=elevAngle*Math.PI/180;
+  camera.position.set(
+    ctrl.target.x+Math.sin(azimuth)*Math.cos(rad)*dist,
+    ctrl.target.y+Math.sin(rad)*dist,
+    ctrl.target.z+Math.cos(azimuth)*Math.cos(rad)*dist
+  );
+  ctrl.update();
+});
+
+// ── Zoom slider ──
+const zoomSlider=document.getElementById('zoom-slider');
+const zoomVal=document.getElementById('zoom-val');
+zoomSlider.addEventListener('input',()=>{
+  const dist=parseFloat(zoomSlider.value);
+  zoomVal.textContent=dist.toFixed(1);
+  const dir=new THREE.Vector3().subVectors(camera.position,ctrl.target).normalize();
+  camera.position.copy(ctrl.target).addScaledVector(dir,dist);
+  ctrl.update();
+});
+
+bp.addEventListener('click',()=>{playing=!playing;acc=0;upUI();});
+bpr.addEventListener('click',()=>{playing=false;goF(curF-1);});
+bn.addEventListener('click',()=>{playing=false;goF(curF+1);});
+tl.addEventListener('input',()=>{curF=Math.max(0,Math.min(totalFrames-1,parseInt(tl.value)));acc=0;loadChunk(Math.floor(curF/CS)).then(()=>{setFrame(curF);upUI();});startRet();});
+bs.addEventListener('click',()=>{si=(si+1)%spds.length;spd=spds[si];bs.textContent=spd+'x';});
+bw.addEventListener('click',()=>{wire=!wire;bw.textContent=wire?'Wire':'Solid';pms.forEach((o,i)=>{const sel=selP===-1||selP===i;o.m.material=wire?(sel?matW:matDW):(sel?matS:matDS);});});
+bb.addEventListener('click',()=>{bones=!bones;bb.classList.toggle('active',bones);pms.forEach((o,i)=>{const sel=selP===-1||selP===i;o.b.visible=bones&&sel;});});
+bb.classList.add('active');
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault();playing=!playing;acc=0;upUI();}
+  if(e.code==='ArrowLeft'){playing=false;goF(curF-1);}
+  if(e.code==='ArrowRight'){playing=false;goF(curF+1);}
+  if(e.code==='KeyW')bw.click();
+  if(e.code==='KeyB')bb.click();
+  if(e.code==='Escape')selPerson(-1);
+});
+
+let lt=0;const fd=1000/VIDEO_FPS;
+function anim(t){
+  requestAnimationFrame(anim);const dt=t-lt;lt=t;
+  if(playing){acc+=dt*spd;while(acc>=fd){acc-=fd;curF++;if(curF>=totalFrames)curF=0;}const ci=Math.floor(curF/CS);if(cache.has(ci)){setFrame(curF);upUI();}else loadChunk(ci);}
+  ctrl.update();ren.render(scene,camera);
+}
+goF(0);requestAnimationFrame(anim);
+window.addEventListener('resize',()=>{camera.aspect=container.clientWidth/container.clientHeight;camera.updateProjectionMatrix();ren.setSize(container.clientWidth,container.clientHeight);});
+</script>
+</body></html>
