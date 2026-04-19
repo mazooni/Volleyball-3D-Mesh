@@ -17,7 +17,7 @@
   #timeline { flex: 1 1 240px; min-width: 180px; -webkit-appearance: none; appearance: none; height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; outline: none; cursor: pointer; }
   #timeline::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #f59e0b; cursor: grab; }
   #frame-info { font-size: 12px; color: #8b9cb3; min-width: 130px; text-align: right; font-variant-numeric: tabular-nums; }
-  #buffer-status { font-size: 12px; color: #8b9cb3; min-width: 180px; font-variant-numeric: tabular-nums; }
+  #buffer-status { font-size: 12px; color: #f87171; font-weight: 700; min-width: 180px; font-variant-numeric: tabular-nums; }
   #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 18px; color: #f59e0b; z-index: 100; }
   #speed-label { font-size: 11px; color: #8b9cb3; }
   #return-indicator { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.55); color: #fff; padding: 5px 14px; border-radius: 16px; font-size: 11px; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
@@ -368,6 +368,30 @@ function upUI(){
   bp.textContent=playRequestedWhileBuffering&&!startupBufferReady()?'Buffering...':(playing?'Pause':'Play');
   bp.classList.toggle('active',playing||playRequestedWhileBuffering);
 }
+function pausePlayback(){
+  playing=false;
+  playRequestedWhileBuffering=false;
+  waitingForChunk=false;
+  acc=0;
+  updateBufferUI();
+}
+function startPlayback(){
+  if(startupBufferReady()){
+    playing=true;
+    playRequestedWhileBuffering=false;
+  }else{
+    playing=false;
+    playRequestedWhileBuffering=true;
+    startBackgroundPreload();
+  }
+  waitingForChunk=false;
+  acc=0;
+  updateBufferUI();
+}
+function togglePlayback(){
+  if(playing||playRequestedWhileBuffering) pausePlayback();
+  else startPlayback();
+}
 async function goF(f){
   curF=Math.max(0,Math.min(totalFrames-1,f));
   await loadChunk(Math.floor(curF/CS));
@@ -407,29 +431,16 @@ zoomSlider.addEventListener('input',()=>{
   ctrl.update();
 });
 
-bp.addEventListener('click',()=>{
-  if(playing){
-    playing=false;
-  }else if(playRequestedWhileBuffering){
-    playRequestedWhileBuffering=false;
-  }else if(!startupBufferReady()){
-    playRequestedWhileBuffering=true;
-    startBackgroundPreload();
-  }else{
-    playing=true;
-  }
-  waitingForChunk=false;
-  acc=0;
-  updateBufferUI();
+bp.addEventListener('click',e=>{
+  e.preventDefault();
+  e.stopPropagation();
+  togglePlayback();
 });
-bpr.addEventListener('click',()=>{playing=false;playRequestedWhileBuffering=false;goF(curF-1);});
-bn.addEventListener('click',()=>{playing=false;playRequestedWhileBuffering=false;goF(curF+1);});
+bpr.addEventListener('click',()=>{pausePlayback();goF(curF-1);});
+bn.addEventListener('click',()=>{pausePlayback();goF(curF+1);});
 tl.addEventListener('input',()=>{
   curF=Math.max(0,Math.min(totalFrames-1,parseInt(tl.value)));
-  playing=false;
-  playRequestedWhileBuffering=false;
-  waitingForChunk=false;
-  acc=0;
+  pausePlayback();
   loadChunk(Math.floor(curF/CS)).then(()=>{setFrame(curF);updateBufferUI();});
 });
 bs.addEventListener('click',()=>{si=(si+1)%spds.length;spd=spds[si];bs.textContent=spd+'x';});
@@ -440,10 +451,10 @@ bb.classList.add('active');
 document.addEventListener('keydown',e=>{
   if(e.code==='Space'){
     e.preventDefault();
-    bp.click();
+    togglePlayback();
   }
-  if(e.code==='ArrowLeft'){playing=false;playRequestedWhileBuffering=false;goF(curF-1);}
-  if(e.code==='ArrowRight'){playing=false;playRequestedWhileBuffering=false;goF(curF+1);}
+  if(e.code==='ArrowLeft'){pausePlayback();goF(curF-1);}
+  if(e.code==='ArrowRight'){pausePlayback();goF(curF+1);}
   if(e.code==='KeyW')bw.click();
   if(e.code==='KeyB')bb.click();
   if(e.code==='Escape')selPerson(-1);
