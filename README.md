@@ -6,13 +6,11 @@ Three notebook-driven pipelines for volleyball footage:
 - [`YOLO26_PersonTracker.ipynb`](YOLO26_PersonTracker.ipynb) tracks players frame by frame and exports both `tracked.mp4` and `tracked_tracks.json`.
 - [`sam3dbody_video.ipynb`](sam3dbody_video.ipynb) packages a SAM 3D body mesh viewer as `sam3d_viewer.html` plus a `viewer_data/` bundle.
 
-The interactive mesh viewer is deployed from [`volleyball-ui/`](volleyball-ui), not embedded directly in this README, because GitHub strips `<iframe>` embeds from rendered Markdown.
-
 ## Live Mesh Viewer
 
-- Intended production URL: [volleyball-3d-mesh.vercel.app](https://volleyball-3d-mesh.vercel.app)
-- One-click import to Vercel Pro: [Deploy `volleyball-ui` to Vercel](https://vercel.com/new/clone?repository-url=https://github.com/mazooni/Volleyball-3D-Mesh&project-name=volleyball-3d-mesh&root-directory=volleyball-ui)
+- Deploy this repo from the Vercel dashboard or use the quick import link: [Deploy `volleyball-ui` to Vercel](https://vercel.com/new/clone?repository-url=https://github.com/mazooni/Volleyball-3D-Mesh&project-name=volleyball-3d-mesh&root-directory=volleyball-ui)
 - Vercel root directory: `volleyball-ui`
+- Suggested project name: `volleyball-3d-mesh`
 
 ## Repository Layout
 
@@ -23,8 +21,12 @@ The interactive mesh viewer is deployed from [`volleyball-ui/`](volleyball-ui), 
 ├── YOLO26_PersonTracker.ipynb
 ├── sam3dbody_video.ipynb
 ├── assets/readme/
-│   ├── video-enhancement-before.mp4
-│   ├── video-enhancement-after.mp4
+│   ├── enhancement-before-01.jpg
+│   ├── enhancement-after-01.jpg
+│   ├── enhancement-before-02.jpg
+│   ├── enhancement-after-02.jpg
+│   ├── enhancement-before-03.jpg
+│   ├── enhancement-after-03.jpg
 │   └── yolo-person-tracking.mp4
 └── volleyball-ui/
     ├── index.html
@@ -41,19 +43,37 @@ SeedVR2-based video restoration for low-quality volleyball footage.
 - Builds a constant-frame-rate mezzanine, splits the source video into overlap-aware chunks, and chooses runtime topology from the GPUs it can see.
 - Reassembles the restored chunks into a final `tracking_master_cv.mp4`.
 
-### Before / After Demo
+### Before / After Frames
+
+Left column is the original clip and right column is the processed output. These frames were sampled from matching moments in the same rally.
 
 <table>
   <tr>
+    <th width="50%">Original Input</th>
+    <th width="50%">Enhanced Output</th>
+  </tr>
+  <tr>
     <td width="50%" align="center">
-      <strong>Original Input</strong><br />
-      <video src="assets/readme/video-enhancement-before.mp4" controls muted playsinline loop width="100%"></video><br />
-      <sub><a href="assets/readme/video-enhancement-before.mp4">Open clip directly</a></sub>
+      <img src="assets/readme/enhancement-before-01.jpg" alt="Original volleyball frame 1" width="100%" />
     </td>
     <td width="50%" align="center">
-      <strong>Enhanced Output</strong><br />
-      <video src="assets/readme/video-enhancement-after.mp4" controls muted playsinline loop width="100%"></video><br />
-      <sub><a href="assets/readme/video-enhancement-after.mp4">Open clip directly</a></sub>
+      <img src="assets/readme/enhancement-after-01.jpg" alt="Enhanced volleyball frame 1" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/readme/enhancement-before-02.jpg" alt="Original volleyball frame 2" width="100%" />
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/readme/enhancement-after-02.jpg" alt="Enhanced volleyball frame 2" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/readme/enhancement-before-03.jpg" alt="Original volleyball frame 3" width="100%" />
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/readme/enhancement-after-03.jpg" alt="Enhanced volleyball frame 3" width="100%" />
     </td>
   </tr>
 </table>
@@ -88,18 +108,18 @@ SAM 3D body mesh extraction and viewer export for a volleyball clip.
   - `viewer_data/faces.bin`
   - `viewer_data/chunk_*.bin`
 
-The deployable site in [`volleyball-ui/`](volleyball-ui) is the mesh-only version of that export. The old dashboard, clip browser, and other non-mesh website pieces were removed so the Vercel app is only the 3D viewer.
+The deployable site in [`volleyball-ui/`](volleyball-ui) packages the mesh viewer for Vercel as a standalone 3D experience.
 
 ## Deploying the Viewer
 
 1. Import this repo into Vercel Pro.
 2. Set the root directory to `volleyball-ui`.
-3. Deploy as a static site.
+3. If Vercel asks for framework settings, keep it as a static site and deploy.
 
 `volleyball-ui/index.html` is the public entrypoint, and the mesh payload is served from `volleyball-ui/3dmesh/viewer_data/*`.
 
 ## Notes
 
-- The MP4 files in `assets/readme/` are optimized demo exports for GitHub display.
+- `assets/readme/` contains still-frame enhancement comparisons plus the tracker demo clip.
 - The larger local source videos are intentionally not committed.
 - The mesh viewer data is large, so this repo assumes Vercel Pro for a self-contained deployment of the full `viewer_data/` bundle.
